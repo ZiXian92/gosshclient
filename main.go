@@ -75,6 +75,31 @@ func main() {
 			hostCert := key.(*ssh.Certificate)
 			log.Printf("Host certificate: %v", hostCert)
 			// TODO: Implement the actual verification
+			globalKnownHostsBuf, err := ioutil.ReadFile("/etc/ssh/ssh_known_hosts")
+			if err != nil {
+				log.Println("Failed to read known hosts file")
+				return err
+			}
+
+			marker, hosts, pubKey, _, _, err := ssh.ParseKnownHosts(globalKnownHostsBuf)
+			if err != nil {
+				log.Println("Failed to parse known hosts file")
+				return err
+			}
+			log.Printf("Marker: %s", marker)
+			log.Printf("Hosts: %v", hosts)
+			log.Printf("PubKey: %v", pubKey)
+
+			// Assuming either hostname and remote matches hosts array
+			log.Println(pubKey.Marshal())
+			log.Println(cert.SignatureKey.Marshal())
+
+			// Incorrect way to verify host cert using CA public key.
+			// How to verify cert?
+			if err := pubKey.Verify(cert.Marshal(), cert.Signature); err != nil {
+				log.Println(err)
+				log.Println("Invalid host key")
+			}
 			return nil
 		},
 	}
