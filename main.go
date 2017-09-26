@@ -22,11 +22,12 @@ func main() {
 	flag.Parse()
 
 	clientConfig := gossh.ClientConfig{
-		Host:       fmt.Sprintf("%s:%d", host, port),
-		LocalUser:  localUser,
-		RemoteUser: remoteUser,
+		Host:          fmt.Sprintf("%s:%d", host, port),
+		LocalUser:     localUser,
+		RemoteUser:    remoteUser,
+		HostKeyPolicy: gossh.StrictHostKeyChecking,
 	}
-	client, err := gossh.ConnectWithKeyCert(clientConfig, gossh.StrictHostKeyChecking(clientConfig))
+	client, err := gossh.ConnectWithKeyCert(clientConfig)
 
 	if err != nil {
 		log.Fatalln(err)
