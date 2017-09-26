@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"os"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/zixian92/gossh"
 )
 
 var localUser, remoteUser, host string
@@ -22,97 +21,37 @@ func main() {
 	flag.UintVar(&port, "port", 22, "Port of remote server to connect to")
 	flag.Parse()
 
-	// Read and parse private key
-	log.Printf("Using private key /home/%s/.ssh/id_rsa", localUser)
-	privateKeyBuf, err := ioutil.ReadFile("/home/" + localUser + "/.ssh/id_rsa")
+	clientConfig := gossh.ClientConfig{
+		Host:       fmt.Sprintf("%s:%d", host, port),
+		LocalUser:  localUser,
+		RemoteUser: remoteUser,
+	}
+	client, err := gossh.ConnectWithKeyCert(clientConfig, gossh.StrictHostKeyChecking(clientConfig))
+
 	if err != nil {
-		log.Fatalln("Failed to read private key")
+		log.Fatalln(err)
 	}
+	defer client.Close()
 
-	privateKey, err := ssh.ParsePrivateKey(privateKeyBuf)
+	session, err := client.NewSession()
 	if err != nil {
-		log.Fatalf("Failed to parse private key")
+		log.Fatalln(err)
 	}
+	defer session.Close()
 
-	// Load in, process and use public key certificate as public key.
-	// This is important for SSH login using public key with principals.
-	// Relevant functions derived from http://grokbase.com/t/gg/golang-nuts/157889kt3k/go-nuts-ssh-certificate-parseceritificate
-	pubKeyCertBuf, err := ioutil.ReadFile("/home/" + localUser + "/.ssh/id_rsa-cert.pub")
+	r, err := session.StdoutPipe()
 	if err != nil {
-		log.Println(err)
-		log.Fatalln("Fail to read SSH key cert file")
+		log.Fatalln(err)
 	}
 
-	pubKeyCert, _, _, _, err := ssh.ParseAuthorizedKey(pubKeyCertBuf)
+	if err := session.Run("ls -lah"); err != nil {
+		log.Fatalln(err)
+	}
+
+	buf, err := ioutil.ReadAll(r)
 	if err != nil {
-		log.Println(err)
-		log.Println("Failed to parse cert file")
+		log.Fatalln(err)
 	}
 
-	cert := pubKeyCert.(*ssh.Certificate)
-	log.Printf("Public key certificate: %v", cert)
-
-	// Use private key to verify the signed certificate's public key
-	// and get the signer that uses the certificate as public key
-	// for the connection
-	certSigner, err := ssh.NewCertSigner(cert, privateKey)
-	if err != nil {
-		log.Println(err)
-		log.Println("Failed to make cert signer")
-	}
-
-	// Set up the client configuration
-	config := ssh.ClientConfig{
-		User: remoteUser,
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(certSigner),
-		},
-
-		// This function verifies the remote host's host key against
-		// global/local known_hosts file's public keys or host CA public key
-		// Important for protecting against man-in-the-middle attacks
-		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			hostCert := key.(*ssh.Certificate)
-			log.Printf("Host certificate: %v", hostCert)
-			// TODO: Implement the actual verification
-			globalKnownHostsBuf, err := ioutil.ReadFile("/etc/ssh/ssh_known_hosts")
-			if err != nil {
-				log.Println("Failed to read known hosts file")
-				return err
-			}
-
-			marker, hosts, pubKey, _, _, err := ssh.ParseKnownHosts(globalKnownHostsBuf)
-			if err != nil {
-				log.Println("Failed to parse known hosts file")
-				return err
-			}
-			log.Printf("Marker: %s", marker)
-			log.Printf("Hosts: %v", hosts)
-			log.Printf("PubKey: %v", pubKey)
-
-			// Assuming either hostname and remote matches hosts array
-			log.Println(pubKey.Marshal())
-			log.Println(cert.SignatureKey.Marshal())
-
-			// Incorrect way to verify host cert using CA public key.
-			// How to verify cert?
-			if err := pubKey.Verify(cert.Marshal(), cert.Signature); err != nil {
-				log.Println(err)
-				log.Println("Invalid host key")
-			}
-			return nil
-		},
-	}
-
-	// Connect to the remote host
-	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", host, port), &config)
-	if err != nil {
-		log.Println(err)
-		log.Fatalf("Failed to connect to remote server")
-	} else {
-		log.Println("Connection successful")
-	}
-
-	// Close connection after we are done
-	defer conn.Close()
+	fmt.Println(string(buf[0:]))
 }
